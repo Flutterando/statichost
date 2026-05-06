@@ -1,0 +1,39 @@
+[package]
+name = "statichost-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "statichost"
+path = "src/main.rs"
+
+[dependencies]
+statichost-proto = { path = "../proto" }
+anyhow = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_bytes = { workspace = true }
+rmp-serde = { workspace = true }
+uuid = { workspace = true }
+tokio = { workspace = true }
+bytes = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+futures-util = { workspace = true }
+
+clap = { version = "4.5", features = ["derive", "env"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls", "stream"] }
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+hyper = { version = "1", features = ["full"] }
+hyper-util = { version = "0.1", features = ["tokio", "client-legacy", "http1"] }
+http-body-util = "0.1"
+tar = "0.4"
+flate2 = "1"
+toml = "0.8"
+directories = "5"
+walkdir = "2"
+url = "2"
+indicatif = "0.17"
+dialoguer = { version = "0.11", default-features = false }
+async-stream = "0.3"

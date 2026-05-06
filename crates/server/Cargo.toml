@@ -1,0 +1,40 @@
+[package]
+name = "statichost-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "statichost-server"
+path = "src/main.rs"
+
+[dependencies]
+statichost-proto = { path = "../proto" }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_bytes = { workspace = true }
+rmp-serde = { workspace = true }
+uuid = { workspace = true }
+tokio = { workspace = true }
+bytes = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+futures-util = { workspace = true }
+
+axum = { version = "0.7", features = ["ws", "multipart", "macros"] }
+tower = "0.5"
+tower-http = { version = "0.6", features = ["fs", "trace"] }
+http = "1"
+http-body-util = "0.1"
+hyper = { version = "1", features = ["full"] }
+flate2 = "1"
+tar = "0.4"
+dashmap = "6"
+subtle = "2"
+tempfile = "3"
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+async-stream = "0.3"
+walkdir = "2"
+tokio-util = { version = "0.7", features = ["io"] }
