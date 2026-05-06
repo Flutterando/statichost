@@ -44,7 +44,7 @@ pub async fn upgrade(
     }
 
     let name = params.name;
-    if !is_valid_name(&name) || is_reserved(&name) {
+    if !is_valid_name(&name) || is_reserved(&name) || name == state.config.api_subdomain {
         return Err(StatusCode::BAD_REQUEST);
     }
 

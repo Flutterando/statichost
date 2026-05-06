@@ -72,6 +72,9 @@ async fn install_ps1(State(state): State<AppState>) -> impl IntoResponse {
 }
 
 fn render(template: &str, state: &AppState) -> String {
-    let host = format!("https://{}", state.config.domain);
+    let host = format!(
+        "https://{}.{}",
+        state.config.api_subdomain, state.config.domain
+    );
     template.replace("{{HOST}}", &host)
 }

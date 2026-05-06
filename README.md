@@ -57,8 +57,8 @@ Each request is routed by the `Host` header. `foo.example.com` → tunnel `foo` 
 ```bash
 docker run -d --name statichost --restart unless-stopped \
   -p 3000:3000 \
-  -e STATICHOST_TOKEN="$(openssl rand -hex 32)" \
-  -e STATICHOST_DOMAIN=example.com \
+  -e STATICHOST_TOKEN=devtoken \
+  -e STATICHOST_DOMAIN=localtest.me \
   -v /data/statichost/sites:/sites \
   -v /data/statichost/dl:/dl \
   jacobmoura7/statichost:latest
@@ -74,8 +74,8 @@ services:
     ports:
       - "3000:3000"
     environment:
-      STATICHOST_TOKEN: "${STATICHOST_TOKEN}"
-      STATICHOST_DOMAIN: "example.com"
+      STATICHOST_TOKEN: devtoken
+      STATICHOST_DOMAIN: localtest.me
     volumes:
       - sites:/sites
       - dl:/dl

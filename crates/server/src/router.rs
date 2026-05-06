@@ -2,11 +2,17 @@ use axum::{
     extract::{Request, State},
     http::{header, StatusCode},
     response::{IntoResponse, Response},
+    Extension, Router,
 };
+use tower::ServiceExt;
 
 use crate::{proxy, routes::static_files, state::AppState};
 
-pub async fn dispatch(State(state): State<AppState>, req: Request) -> Response {
+pub async fn dispatch(
+    State(state): State<AppState>,
+    Extension(system): Extension<Router>,
+    req: Request,
+) -> Response {
     let host: String = req
         .headers()
         .get(header::HOST)
@@ -15,13 +21,22 @@ pub async fn dispatch(State(state): State<AppState>, req: Request) -> Response {
         .unwrap_or_default();
 
     let base = state.config.domain.clone();
+    let api_sub = state.config.api_subdomain.clone();
 
+    let path = req.uri().path().to_string();
     let subdomain = match extract_subdomain(&host, &base) {
         Some(s) => s.to_string(),
         None => {
-            return landing_or_404(&host, &base);
+            return landing_or_404(&host, &base, &api_sub, &path);
         }
     };
+
+    if subdomain == api_sub {
+        return match system.oneshot(req).await {
+            Ok(resp) => resp,
+            Err(e) => match e {},
+        };
+    }
 
     if let Some(handle) = state.registry.get(&subdomain).await {
         return proxy::proxy_request(handle, &subdomain, &base, req).await;
@@ -62,12 +77,21 @@ fn extract_subdomain<'a>(host: &'a str, base: &str) -> Option<&'a str> {
     }
 }
 
-fn landing_or_404(host: &str, base: &str) -> Response {
+fn landing_or_404(host: &str, base: &str, api_sub: &str, path: &str) -> Response {
     if host.eq_ignore_ascii_case(base) || host.is_empty() {
-        (StatusCode::OK, format!("statichost: {base}")).into_response()
-    } else {
-        (StatusCode::NOT_FOUND, format!("unknown host: {host}")).into_response()
+        if path == "/" {
+            let body = format!(
+                "statichost is running.\nAPI is on https://{api_sub}.{base}\n",
+            );
+            return (StatusCode::OK, body).into_response();
+        }
+        return (
+            StatusCode::NOT_FOUND,
+            format!("not found on {base}; API is on https://{api_sub}.{base}\n"),
+        )
+            .into_response();
     }
+    (StatusCode::NOT_FOUND, format!("unknown host: {host}")).into_response()
 }
 
 #[cfg(test)]

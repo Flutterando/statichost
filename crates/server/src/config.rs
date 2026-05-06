@@ -1,9 +1,12 @@
 use std::path::PathBuf;
 
+use statichost_proto::is_valid_name;
+
 #[derive(Debug, Clone)]
 pub struct Config {
     pub token: String,
     pub domain: String,
+    pub api_subdomain: String,
     pub port: u16,
     pub sites_dir: PathBuf,
     pub binaries_dir: PathBuf,
@@ -18,6 +21,13 @@ impl Config {
         }
         let domain = std::env::var("STATICHOST_DOMAIN")
             .map_err(|_| anyhow::anyhow!("STATICHOST_DOMAIN must be set"))?;
+        let api_subdomain = std::env::var("STATICHOST_API_SUBDOMAIN")
+            .unwrap_or_else(|_| "statichost".to_string());
+        if !is_valid_name(&api_subdomain) {
+            anyhow::bail!(
+                "STATICHOST_API_SUBDOMAIN must match ^[a-z0-9][a-z0-9-]{{1,30}}$ (got '{api_subdomain}')"
+            );
+        }
         let port = std::env::var("STATICHOST_PORT")
             .ok()
             .and_then(|s| s.parse().ok())
@@ -37,6 +47,7 @@ impl Config {
         Ok(Self {
             token,
             domain,
+            api_subdomain,
             port,
             sites_dir,
             binaries_dir,

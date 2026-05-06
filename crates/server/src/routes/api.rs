@@ -74,7 +74,7 @@ async fn deploy(
     if !is_valid_name(&name) {
         return Err((StatusCode::BAD_REQUEST, "invalid name".into()));
     }
-    if is_reserved(&name) {
+    if is_reserved(&name) || name == state.config.api_subdomain {
         return Err((StatusCode::BAD_REQUEST, "reserved name".into()));
     }
 
