@@ -82,7 +82,7 @@ volumes:
   sites:
 ```
 
-Run with `STATICHOST_TOKEN=$(openssl rand -hex 32) docker compose up -d`.
+Run with `docker compose up -d`.
 
 ### Coolify
 
