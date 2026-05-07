@@ -1,6 +1,14 @@
-# statichost
+<p align="center">
+  <img src="assets/logo-256.png" width="160" alt="statichost logo" />
+</p>
 
-Self-hosted alternative to Firebase Hosting + ngrok. Rust server + CLI.
+<h1 align="center">statichost</h1>
+
+<p align="center">
+  Self-hosted alternative to Firebase Hosting + ngrok. Rust server + CLI.
+</p>
+
+---
 
 - **Static hosting**: deploy a folder with one command, served on `{name}.your-domain.com`.
 - **Tunnel**: expose any local port through a public subdomain (no third-party tunnel service).

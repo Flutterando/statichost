@@ -1,0 +1,54 @@
+# Service Template for the Coolify catalog (https://github.com/coollabsio/coolify)
+#
+# When submitting a PR to coollabsio/coolify, this file goes under
+# `templates/compose/statichost.yaml` (or whichever path the catalog uses
+# at PR time — the upstream layout shifts; check existing entries).
+#
+# The fields below match Coolify's compose-stack template format:
+#   - documentation: link to project docs
+#   - slogan / tags: surfaced in the Coolify catalog UI
+#   - logo: relative path or URL to a 512x512 PNG (Coolify rescales)
+#   - services: standard docker-compose with SERVICE_FQDN_*_<port> magic vars
+#
+# Coolify magic vars:
+#   SERVICE_FQDN_STATICHOST_3000     → user picks a hostname in the UI; Coolify
+#                                       generates the Traefik label and TLS cert
+#   SERVICE_PASSWORD_64_TOKEN        → 64-char random string, stored as secret
+#   SERVICE_BASE64_64_TOKEN          → alternative if you prefer base64
+#
+# IMPORTANT: this template uses Coolify's native single-FQDN routing for the
+# API subdomain only. Static sites and tunnels live on additional subdomains
+# that the user adds to the Coolify Domain field by hand (comma-separated).
+# See deploy/README.md "Coolify with a subdomain list" for why this is the
+# pragmatic path on Coolify today.
+
+documentation: https://github.com/Flutterando/statichost
+slogan: Self-hosted static site hosting + tunnel proxy. Firebase Hosting + ngrok in a single Rust container.
+logo: svgs/statichost.svg
+tags:
+  - hosting
+  - static
+  - cdn
+  - tunnel
+  - rust
+port: 3000
+
+services:
+  statichost:
+    image: jacobmoura7/statichost:latest
+    environment:
+      - SERVICE_FQDN_STATICHOST_3000
+      - STATICHOST_TOKEN=$SERVICE_PASSWORD_64_TOKEN
+      - STATICHOST_DOMAIN=$SERVICE_URL_STATICHOST
+      - STATICHOST_API_SUBDOMAIN=statichost
+    volumes:
+      - sites:/sites
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000/api/health -H \"Authorization: Bearer $STATICHOST_TOKEN\" || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  sites:
