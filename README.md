@@ -16,10 +16,8 @@ Image: [hub.docker.com/r/jacobmoura7/statichost](https://hub.docker.com/r/jacobm
 
 1. [How it works](#how-it-works)
 2. [Server installation](#server-installation)
-   - [docker run](#docker-run)
-   - [docker-compose](#docker-compose)
-   - [Coolify](#coolify)
-   - [Portainer](#portainer)
+   - [Local quick test](#local-quick-test-no-real-domain)
+   - [Production recipes](#production-pick-a-recipe) — see [`deploy/`](deploy/)
 3. [CLI installation](#cli-installation)
    - [macOS / Linux](#macos--linux)
    - [Windows](#windows)
@@ -48,72 +46,67 @@ Each request is routed by the `Host` header. `foo.example.com` → tunnel `foo` 
 ### Prerequisites
 
 - A domain you control. **Subdomains are created dynamically**, so you must dedicate either a root zone (`example.com`) or a sub-zone (`apps.example.com`) to statichost — see [Best practices](#best-practices).
-- A wildcard DNS record `*.your-domain.com` pointing to your server.
-- A reverse proxy that terminates TLS for the wildcard domain (Coolify / Traefik / Cloudflare Tunnel).
+- A way to terminate TLS for the wildcard. statichost itself doesn't speak TLS; you put **Caddy**, **Cloudflare Tunnel**, or another wildcard-aware proxy in front.
 - A strong token: `openssl rand -hex 32`.
 
-### docker run
+> **Note**: The reverse-proxy story is the trickiest part of deploying statichost — it dynamically creates subdomains, which clashes with PaaS platforms (Coolify, Caprover) that expect each hostname to be registered up-front. The [`deploy/`](deploy/) directory has ready-to-use compose recipes for the common scenarios.
+
+### Local quick test (no real domain)
+
+For a 2-minute test before committing to a real domain. Uses `localtest.me` (a public DNS that resolves `*.localtest.me` to `127.0.0.1`):
 
 ```bash
-docker run -d --name statichost --restart unless-stopped \
+docker run -d --rm --name statichost-test \
   -p 3000:3000 \
   -e STATICHOST_TOKEN=devtoken \
   -e STATICHOST_DOMAIN=localtest.me \
-  -v /data/statichost/sites:/sites \
+  -v /tmp/statichost-sites:/sites \
   jacobmoura7/statichost:latest
+
+curl http://localhost:3000/api/health -H "Authorization: Bearer devtoken"
+# → ok
+
+# Check landing page
+curl http://localtest.me:3000/
 ```
 
-### docker-compose
+### Production: pick a recipe
 
-```yaml
-services:
-  statichost:
-    image: jacobmoura7/statichost:latest
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
-    environment:
-      STATICHOST_TOKEN: devtoken
-      STATICHOST_DOMAIN: localtest.me
-    volumes:
-      - sites:/sites
+| Recipe | Best for | Public ports needed | Cloudflare account |
+|---|---|---|---|
+| [Caddy with on-demand TLS](deploy/docker-compose.caddy.yml) | VPS with public IP | 80 + 443 | no |
+| [Cloudflare Tunnel sidecar](deploy/docker-compose.cloudflared.yml) | Anywhere — VPS, NAT, Coolify | none | yes |
+| [Coolify + cloudflared bypass](deploy/README.md#coolify-with-cloudflared-bypass) | Already running Coolify | none | yes |
+| [Coolify native (fixed subdomains)](deploy/README.md#coolify-native-fixed-subdomains) | Few pre-known subdomains | Coolify-managed | no |
 
-volumes:
-  sites:
+See [`deploy/README.md`](deploy/README.md) for full setup steps.
+
+The shortest path for most people:
+
+```bash
+git clone https://github.com/Flutterando/statichost
+cd statichost/deploy
+
+# self-hosted on a VPS with public IP
+STATICHOST_TOKEN=$(openssl rand -hex 32) \
+STATICHOST_DOMAIN=your-domain.com \
+docker compose -f docker-compose.caddy.yml up -d
 ```
 
-Run with `docker compose up -d`.
+Or with Cloudflare (works behind NAT, on Coolify, anywhere):
 
-### Coolify
+```bash
+STATICHOST_TOKEN=$(openssl rand -hex 32) \
+STATICHOST_DOMAIN=your-domain.com \
+CLOUDFLARED_TOKEN=eyJh...   # from Cloudflare Zero Trust dashboard
+docker compose -f docker-compose.cloudflared.yml up -d
+```
 
-1. **New resource → Docker Image**, set image to `jacobmoura7/statichost:latest`.
-2. **Domains**: enter `http://*.example.com` — the leading wildcard is the key part. Coolify generates a Traefik/Caddy rule that catches every subdomain of `example.com` and forwards to this service on port `3000`.
-3. **Environment variables**:
-   - `STATICHOST_TOKEN` — generate a long random value (mark as secret).
-   - `STATICHOST_DOMAIN` — `example.com` (must match the wildcard above, without `*.`).
-4. **Persistent storage**: mount one volume:
-   - `/data/statichost/sites` → `/sites`
-5. **Network port exposed**: `3000`.
-6. Deploy. After the first deploy, Coolify provisions a wildcard certificate via Let's Encrypt (DNS challenge) — point your DNS `*.example.com` to the Coolify host.
+### Why not just `docker run` and let Coolify route it
 
-### Portainer
+Coolify (and similar PaaS platforms) generate Traefik rules from the Domain field of each resource. They expect a literal hostname like `app.your-domain.com`, not `*.your-domain.com`. When you put a wildcard there, the generated Traefik label either does nothing or matches nothing — Traefik returns `404 page not found` for every subdomain.
 
-1. **Stacks → Add stack**, paste the docker-compose snippet from above.
-2. In **Environment variables**, set `STATICHOST_TOKEN` to a strong random value and confirm `STATICHOST_DOMAIN`.
-3. Deploy.
-4. Put a reverse proxy in front of port `3000` for the wildcard domain. The two common options:
-   - **Traefik**: add labels to the stack —
-     ```yaml
-     labels:
-       - traefik.enable=true
-       - traefik.http.routers.statichost.rule=HostRegexp(`{sub:[a-z0-9-]+}.example.com`) || Host(`example.com`)
-       - traefik.http.routers.statichost.entrypoints=websecure
-       - traefik.http.routers.statichost.tls.certresolver=letsencrypt
-       - traefik.http.routers.statichost.tls.domains[0].main=example.com
-       - traefik.http.routers.statichost.tls.domains[0].sans=*.example.com
-       - traefik.http.services.statichost.loadbalancer.server.port=3000
-     ```
-   - **Cloudflare Tunnel**: in your tunnel config, route `*.example.com` → `http://statichost:3000`. Cloudflare handles TLS, you can run statichost without certificates.
+The recipes above sidestep this by either replacing the reverse proxy entirely (Caddy) or routing around it (cloudflared). They keep Coolify happy for your other apps without trying to make Coolify do something it wasn't designed for.
 
 ---
 
@@ -294,11 +287,15 @@ The server rejects deploys/tunnels named `www`, `api`, `admin`, `dl`, `install`,
 
 ### Wildcard TLS
 
-Use either:
-- **Cloudflare Tunnel** — TLS terminated by Cloudflare, server runs plaintext on `:3000`. Simplest setup.
-- **Traefik / Caddy with Let's Encrypt DNS challenge** — issues a real wildcard cert. Requires API access to your DNS provider.
+Three options that work, in increasing order of complexity:
 
-HTTP-01 challenge does **not** work for wildcards — don't waste time on it.
+1. **Caddy with on-demand TLS** ([recipe](deploy/docker-compose.caddy.yml)) — issues per-subdomain certs lazily, no DNS API access. Best for self-hosting on a VPS.
+2. **Cloudflare Tunnel** ([recipe](deploy/docker-compose.cloudflared.yml)) — TLS terminated at Cloudflare's edge, statichost runs plaintext. Works anywhere, including behind NAT.
+3. **Traefik / Caddy with Let's Encrypt DNS-01 challenge** — issues a real `*.example.com` cert. Requires API access to your DNS provider.
+
+HTTP-01 challenge does **not** issue wildcard certs — don't waste time on it.
+
+Coolify's built-in cert/proxy doesn't handle wildcards in its Domain field. Use one of the recipes in [`deploy/`](deploy/) instead of trying to coerce Coolify's Traefik.
 
 ### Persist `/sites`
 

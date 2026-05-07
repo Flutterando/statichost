@@ -1,0 +1,49 @@
+# statichost + cloudflared sidecar — TLS handled by Cloudflare, no public ports needed.
+#
+# This deploys statichost with its own dedicated Cloudflare Tunnel. cloudflared
+# forwards every request for *.your-domain.com to the statichost container, completely
+# bypassing any external reverse proxy (Coolify, Traefik, etc).
+#
+# Setup:
+#   1. Create a tunnel in Cloudflare Zero Trust dashboard:
+#      Networks → Tunnels → Create a tunnel → Cloudflared → name it "statichost"
+#   2. Copy the tunnel token shown after creation (long base64 string).
+#   3. Add a Public Hostname to that tunnel:
+#      Subdomain: *
+#      Domain: your-domain.com
+#      Service: HTTP — http://statichost:3000
+#   4. Run:
+#        STATICHOST_TOKEN=$(openssl rand -hex 32) \
+#        STATICHOST_DOMAIN=your-domain.com \
+#        CLOUDFLARED_TOKEN=eyJhI... \
+#        docker compose -f docker-compose.cloudflared.yml up -d
+#
+# DNS: Cloudflare creates the wildcard CNAME automatically when you add the
+# Public Hostname rule. No manual DNS work needed.
+#
+# Why this works for Coolify users: this stack is self-contained — you can deploy
+# it on Coolify (or anywhere) without registering domains in Coolify's UI. Coolify's
+# Traefik never sees these requests because cloudflared talks directly to the
+# statichost container over the internal docker network.
+
+services:
+  statichost:
+    image: jacobmoura7/statichost:latest
+    restart: unless-stopped
+    expose:
+      - "3000"
+    environment:
+      STATICHOST_TOKEN: "${STATICHOST_TOKEN:?set STATICHOST_TOKEN}"
+      STATICHOST_DOMAIN: "${STATICHOST_DOMAIN:?set STATICHOST_DOMAIN}"
+    volumes:
+      - sites:/sites
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARED_TOKEN}
+    depends_on:
+      - statichost
+
+volumes:
+  sites:
