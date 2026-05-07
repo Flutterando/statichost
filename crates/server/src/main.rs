@@ -40,7 +40,6 @@ async fn main() -> anyhow::Result<()> {
     let system_router: Router = Router::new()
         .nest("/api", api_with_auth)
         .route("/api/tunnel", get(tunnel::ws::upgrade))
-        .merge(routes::downloads::router())
         .with_state(state.clone());
 
     let app = Router::new()

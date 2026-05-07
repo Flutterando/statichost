@@ -51,38 +51,41 @@ Quando um request chega em {name}.{domain}:
 
 ## Estrutura do Repositorio
 
+Cargo workspace com 3 crates compartilhando o `TunnelMsg` enum.
+
 ```
 statichost/
-+-- server/
-|   +-- Cargo.toml
-|   +-- src/
-|       +-- main.rs
-|       +-- routes/
-|       |   +-- api.rs          # POST /api/deploy, GET /api/sites, DELETE /api/sites/:name
-|       |   +-- tunnel.rs       # WebSocket /api/tunnel?name=x
-|       |   +-- static_files.rs # Serve /sites/{subdomain}/
-|       |   +-- downloads.rs    # GET /dl/{binary}, /install.sh, /install.ps1
-|       +-- proxy.rs            # Tunnel proxy: request <-> WebSocket <-> CLI
-|       +-- router.rs           # Decisao: tunnel vs static vs 404
-|       +-- auth.rs             # Bearer token validation
-+-- cli/
-|   +-- Cargo.toml
-|   +-- src/
-|       +-- main.rs
-|       +-- commands/
-|       |   +-- login.rs        # statichost login --host x --token y
-|       |   +-- deploy.rs       # statichost deploy ./pasta --name x
-|       |   +-- tunnel.rs       # statichost tunnel 3000 --name x
-|       |   +-- list.rs         # statichost list
-|       |   +-- delete.rs       # statichost delete x
-|       +-- config.rs           # ~/.statichost/config.toml
-|       +-- upload.rs           # Compacta pasta -> tar.gz -> POST /api/deploy
++-- crates/
+|   +-- proto/                  # tipos compartilhados (TunnelMsg + MessagePack)
+|   +-- server/
+|   |   +-- src/
+|   |       +-- main.rs
+|   |       +-- config.rs       # STATICHOST_* env vars
+|   |       +-- state.rs        # AppState (config + tunnel registry)
+|   |       +-- auth.rs         # Bearer middleware (constant time)
+|   |       +-- router.rs       # Subdomain dispatch (api / tunnel / static / 404)
+|   |       +-- proxy.rs        # HTTP -> tunnel WS dispatcher
+|   |       +-- tunnel/
+|   |       |   +-- registry.rs # Arc<RwLock<HashMap<String, TunnelHandle>>>
+|   |       |   +-- ws.rs       # GET /api/tunnel WebSocket upgrade
+|   |       +-- routes/
+|   |           +-- api.rs      # /api/deploy, /api/sites, /api/sites/:name, /api/health
+|   |           +-- static_files.rs # Serve /sites/{subdomain}/ com SPA fallback
+|   +-- cli/
+|       +-- src/
+|           +-- main.rs
+|           +-- config.rs       # ~/.statichost/config.toml
+|           +-- api_client.rs   # reqwest client com Bearer
+|           +-- upload.rs       # Compacta pasta -> tar.gz
+|           +-- commands/
+|               +-- login.rs / deploy.rs / deploy_flutter.rs
+|               +-- tunnel.rs / list.rs / delete.rs
 +-- scripts/
-|   +-- install.sh              # Instalador macOS/Linux
-|   +-- install.ps1             # Instalador Windows
-+-- .github/
-|   +-- workflows/
-|       +-- release.yml         # Cross-compile + upload binarios
+|   +-- install.sh              # Instalador macOS/Linux (releases/latest)
+|   +-- install.ps1             # Instalador Windows (releases/latest)
++-- .github/workflows/
+|   +-- ci.yml                  # fmt + clippy + test
+|   +-- release.yml             # Cross-compile + Release assets + Docker push
 +-- Dockerfile
 +-- CLAUDE.md
 +-- README.md
@@ -94,14 +97,17 @@ statichost/
 |---|---|---|
 | STATICHOST_TOKEN | Token de autenticacao | meu-token-secreto |
 | STATICHOST_DOMAIN | Dominio base | jacobmoura.work |
+| STATICHOST_API_SUBDOMAIN | Subdomain dedicado pra API/tunnel | statichost |
 | STATICHOST_PORT | Porta do server | 3000 |
 | STATICHOST_SITES_DIR | Diretorio dos sites | /sites |
-| STATICHOST_BINARIES_DIR | Diretorio dos binarios para download | /dl |
 
 ## API Endpoints
 
+A API mora em `https://{STATICHOST_API_SUBDOMAIN}.{STATICHOST_DOMAIN}` (default `statichost.{domain}`).
+Os subdomains restantes da zona sao usados para tunnels e sites estaticos.
+
 ### Autenticacao
-Todos os endpoints (exceto /dl/* e /install.*) exigem header:
+Todos os endpoints exigem header:
 ```
 Authorization: Bearer {STATICHOST_TOKEN}
 ```
@@ -113,10 +119,8 @@ Authorization: Bearer {STATICHOST_TOKEN}
 | POST | /api/deploy | Upload de site (multipart: name + archive .tar.gz) |
 | GET | /api/sites | Lista sites deployados |
 | DELETE | /api/sites/:name | Remove um site |
-| GET | /api/tunnel | WebSocket - registra tunnel (query: name, token) |
-| GET | /dl/:filename | Download de binarios da CLI |
-| GET | /install.sh | Script de instalacao Linux/macOS |
-| GET | /install.ps1 | Script de instalacao Windows |
+| GET | /api/health | Health check |
+| GET | /api/tunnel | WebSocket - registra tunnel (query: name) |
 
 ## CLI Comandos
 
@@ -170,7 +174,6 @@ STATICHOST_DOMAIN=jacobmoura.work
 ### Volume
 ```
 /data/sites -> /sites (persistencia dos sites deployados)
-/data/statichost/dl -> /dl (binarios da CLI)
 ```
 
 ## CI/CD - GitHub Actions
@@ -195,27 +198,29 @@ statichost-windows-amd64.exe
 
 ### Workflow
 1. Tag v* -> trigger release
-2. Cross-compile server + CLI para todos os targets
+2. Cross-compile CLI para todos os targets
 3. Build Docker image do server (linux/amd64 + linux/arm64)
 4. Push image para GitHub Container Registry (ghcr.io)
-5. Upload binarios da CLI como release assets
-6. Os binarios ficam disponiveis em /dl/ no proprio server
+5. Upload binarios da CLI como GitHub Release assets
+6. Scripts de instalacao apontam para `releases/latest/download/{nome}` no GitHub
 
 ## Instalacao da CLI
 
+Os scripts vivem em `scripts/` na branch `main` deste repo. O usuario faz curl-pipe direto do raw.githubusercontent. Os binarios sao baixados de `https://github.com/Flutterando/statichost/releases/latest/download/{nome}`.
+
 ### macOS / Linux
 ```bash
-curl -fsSL https://statichost.jacobmoura.work/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Flutterando/statichost/main/scripts/install.sh | sh
 ```
 
 ### Windows
 ```powershell
-irm https://statichost.jacobmoura.work/install.ps1 | iex
+irm https://raw.githubusercontent.com/Flutterando/statichost/main/scripts/install.ps1 | iex
 ```
 
 ### O que o script faz
 1. Detecta OS (linux/darwin/windows) + arch (amd64/arm64)
-2. Baixa binario de https://statichost.jacobmoura.work/dl/statichost-{os}-{arch}
+2. Baixa binario de https://github.com/Flutterando/statichost/releases/latest/download/statichost-{os}-{arch}
 3. Move para /usr/local/bin/statichost (Unix) ou %USERPROFILE%\.statichost\statichost.exe (Windows)
 4. Torna executavel
 
@@ -223,9 +228,9 @@ irm https://statichost.jacobmoura.work/install.ps1 | iex
 
 ```bash
 # 1. Instala
-curl -fsSL https://statichost.jacobmoura.work/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Flutterando/statichost/main/scripts/install.sh | sh
 
-# 2. Configura
+# 2. Configura (apontando pra api subdomain)
 statichost login --host https://statichost.jacobmoura.work --token meu-token
 
 # 3. Deploya site
@@ -245,5 +250,5 @@ statichost tunnel 3000 --name meuapi
 - SPA support: todo site estatico usa try_files - se o arquivo nao existe, serve index.html
 - Token fixo MVP: evolucao futura pode adicionar multiplas API keys com revogacao individual
 - Tunnel via WebSocket: requests HTTP chegam no server, sao empacotados e enviados via WebSocket pro CLI, que faz o request local e devolve a response
-- Binarios self-hosted: o proprio server serve o instalador e os binarios, zero dependencia externa
-- Container minimo: imagem Docker baseada em scratch/alpine, ~10MB
+- Binarios distribuidos via GitHub Releases: install.sh aponta pra raw.githubusercontent + releases/latest/download
+- Container minimo: imagem Docker baseada em debian-slim, ~30MB

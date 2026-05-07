@@ -1,6 +1,7 @@
 $ErrorActionPreference = 'Stop'
 
-$Host_ = '{{HOST}}'
+$Repo = 'Flutterando/statichost'
+$Version = if ($env:STATICHOST_VERSION) { $env:STATICHOST_VERSION } else { 'latest' }
 $InstallDir = Join-Path $env:USERPROFILE '.statichost'
 $Exe = Join-Path $InstallDir 'statichost.exe'
 
@@ -13,7 +14,12 @@ $arch = if ([Environment]::Is64BitOperatingSystem) {
 } else { 'amd64' }
 
 $bin = "statichost-windows-$arch.exe"
-$url = "$Host_/dl/$bin"
+
+$url = if ($Version -eq 'latest') {
+    "https://github.com/$Repo/releases/latest/download/$bin"
+} else {
+    "https://github.com/$Repo/releases/download/$Version/$bin"
+}
 
 Write-Host "Downloading $url"
 Invoke-WebRequest -Uri $url -OutFile $Exe -UseBasicParsing
@@ -25,4 +31,4 @@ if ($userPath -notlike "*$InstallDir*") {
 }
 
 Write-Host "Installed: $Exe"
-Write-Host "Run: statichost login --host $Host_ --token <your-token>"
+Write-Host "Run: statichost login --host https://your-server --token <your-token>"

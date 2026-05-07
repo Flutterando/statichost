@@ -1,8 +1,9 @@
 #!/usr/bin/env sh
 set -e
 
-HOST="{{HOST}}"
+REPO="Flutterando/statichost"
 INSTALL_DIR="${STATICHOST_INSTALL_DIR:-/usr/local/bin}"
+VERSION="${STATICHOST_VERSION:-latest}"
 
 OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
 case "$OS" in
@@ -19,7 +20,13 @@ case "$ARCH" in
 esac
 
 BIN="statichost-${OS}-${ARCH}"
-URL="${HOST}/dl/${BIN}"
+
+if [ "$VERSION" = "latest" ]; then
+  URL="https://github.com/${REPO}/releases/latest/download/${BIN}"
+else
+  URL="https://github.com/${REPO}/releases/download/${VERSION}/${BIN}"
+fi
+
 TMP="$(mktemp -t statichost.XXXXXX)"
 
 echo "Downloading ${URL}"
@@ -42,4 +49,4 @@ else
 fi
 
 echo "Installed: $($INSTALL_DIR/statichost --version 2>/dev/null || echo statichost)"
-echo "Run: statichost login --host ${HOST} --token <your-token>"
+echo "Run: statichost login --host https://your-server --token <your-token>"

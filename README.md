@@ -60,7 +60,6 @@ docker run -d --name statichost --restart unless-stopped \
   -e STATICHOST_TOKEN=devtoken \
   -e STATICHOST_DOMAIN=localtest.me \
   -v /data/statichost/sites:/sites \
-  -v /data/statichost/dl:/dl \
   jacobmoura7/statichost:latest
 ```
 
@@ -78,11 +77,9 @@ services:
       STATICHOST_DOMAIN: localtest.me
     volumes:
       - sites:/sites
-      - dl:/dl
 
 volumes:
   sites:
-  dl:
 ```
 
 Run with `STATICHOST_TOKEN=$(openssl rand -hex 32) docker compose up -d`.
@@ -94,9 +91,8 @@ Run with `STATICHOST_TOKEN=$(openssl rand -hex 32) docker compose up -d`.
 3. **Environment variables**:
    - `STATICHOST_TOKEN` — generate a long random value (mark as secret).
    - `STATICHOST_DOMAIN` — `example.com` (must match the wildcard above, without `*.`).
-4. **Persistent storage**: add two volumes:
+4. **Persistent storage**: mount one volume:
    - `/data/statichost/sites` → `/sites`
-   - `/data/statichost/dl` → `/dl`
 5. **Network port exposed**: `3000`.
 6. Deploy. After the first deploy, Coolify provisions a wildcard certificate via Let's Encrypt (DNS challenge) — point your DNS `*.example.com` to the Coolify host.
 
@@ -123,22 +119,25 @@ Run with `STATICHOST_TOKEN=$(openssl rand -hex 32) docker compose up -d`.
 
 ## CLI installation
 
+The CLI binaries are published as **GitHub Release assets**. The install scripts below pull from `releases/latest`, so they always grab the newest version. To pin a specific version, set `STATICHOST_VERSION=v0.1.0` before running the installer.
+
 ### macOS / Linux
 
 ```bash
-curl -fsSL https://example.com/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/Flutterando/statichost/main/scripts/install.sh | sh
 ```
 
-The server hosts an installer that detects your OS (Linux / macOS) and arch (amd64 / arm64), downloads the right binary, and drops it in `/usr/local/bin/statichost` (uses `sudo` when needed).
+Detects OS (Linux / macOS) and arch (amd64 / arm64), downloads the matching binary from the latest GitHub Release, and drops it in `/usr/local/bin/statichost` (uses `sudo` if the directory isn't writable).
 
 Manual install:
 
 ```bash
 # pick the right binary for your platform
-curl -fsSL https://example.com/dl/statichost-darwin-arm64 -o statichost   # macOS Apple Silicon
-curl -fsSL https://example.com/dl/statichost-darwin-amd64 -o statichost   # macOS Intel
-curl -fsSL https://example.com/dl/statichost-linux-amd64  -o statichost   # Linux x86_64
-curl -fsSL https://example.com/dl/statichost-linux-arm64  -o statichost   # Linux ARM (RPi, Graviton)
+BASE=https://github.com/Flutterando/statichost/releases/latest/download
+curl -fsSL "$BASE/statichost-darwin-arm64" -o statichost   # macOS Apple Silicon
+# curl -fsSL "$BASE/statichost-darwin-amd64" -o statichost   # macOS Intel
+# curl -fsSL "$BASE/statichost-linux-amd64"  -o statichost   # Linux x86_64
+# curl -fsSL "$BASE/statichost-linux-arm64"  -o statichost   # Linux ARM (RPi, Graviton)
 
 chmod +x statichost
 sudo mv statichost /usr/local/bin/
@@ -149,7 +148,7 @@ sudo mv statichost /usr/local/bin/
 PowerShell:
 
 ```powershell
-irm https://example.com/install.ps1 | iex
+irm https://raw.githubusercontent.com/Flutterando/statichost/main/scripts/install.ps1 | iex
 ```
 
 This downloads `statichost.exe` to `%USERPROFILE%\.statichost\` and adds it to your user `PATH` (open a new terminal afterwards).
@@ -159,7 +158,7 @@ Manual install:
 ```powershell
 $dir = "$env:USERPROFILE\.statichost"
 New-Item -ItemType Directory -Force -Path $dir | Out-Null
-Invoke-WebRequest "https://example.com/dl/statichost-windows-amd64.exe" -OutFile "$dir\statichost.exe"
+Invoke-WebRequest "https://github.com/Flutterando/statichost/releases/latest/download/statichost-windows-amd64.exe" -OutFile "$dir\statichost.exe"
 [Environment]::SetEnvironmentVariable('Path', "$env:Path;$dir", 'User')
 ```
 
@@ -172,8 +171,10 @@ statichost --help
 
 ### Login
 
+The CLI talks to the API subdomain (default `statichost.{your-domain}`):
+
 ```bash
-statichost login --host https://example.com --token <your-token>
+statichost login --host https://statichost.example.com --token <your-token>
 ```
 
 Credentials are saved to `~/.statichost/config.toml` (mode `0600` on Unix).
@@ -289,7 +290,7 @@ Treat the token like a password. It's a single shared secret in the MVP — don'
 
 ### Reserved subdomains
 
-The server rejects deploys/tunnels named `www`, `api`, `admin`, `dl`, `install` — they collide with the server's own routes. Pick something else.
+The server rejects deploys/tunnels named `www`, `api`, `admin`, `dl`, `install`, plus whatever you set as `STATICHOST_API_SUBDOMAIN` (default `statichost`) — they collide with the server's own routes. Pick something else.
 
 ### Wildcard TLS
 
@@ -299,13 +300,13 @@ Use either:
 
 HTTP-01 challenge does **not** work for wildcards — don't waste time on it.
 
-### Persist `/sites` and `/dl`
+### Persist `/sites`
 
-`/sites` holds your deployed content. `/dl` holds CLI binaries served by the server. Mount both to durable storage so an image upgrade or container recreation doesn't wipe them.
+`/sites` holds your deployed content. Mount it to durable storage so an image upgrade or container recreation doesn't wipe deployments.
 
-### CLI binaries on the server
+### CLI distribution
 
-After you tag a release on GitHub, the CLI binaries are published as release assets. Drop them in your `/dl` volume so `https://example.com/dl/statichost-linux-amd64` and the install scripts work for your team. (The release workflow doesn't push to a running instance automatically — that's by design, to keep the CI free of production credentials.)
+CLI binaries live on **GitHub Releases** — the server doesn't host them. The install scripts in this repo's `scripts/` directory point to `releases/latest/download/...`, so a `git tag v* && git push --tags` is enough to make a new version available to anyone via the curl-pipe install command. No production credentials in CI, no `/dl` volume to populate.
 
 ### Resource sizing
 
@@ -319,9 +320,9 @@ The server is mostly I/O. A `0.25 vCPU / 256 MB` container handles dozens of sma
 |---|---|---|---|
 | `STATICHOST_TOKEN` | yes | — | Bearer token for the API and tunnel WebSocket |
 | `STATICHOST_DOMAIN` | yes | — | Base zone, e.g. `example.com` or `apps.example.com` |
+| `STATICHOST_API_SUBDOMAIN` | no | `statichost` | Subdomain that exposes the API + tunnel WebSocket (point your CLI at `https://{this}.{domain}`) |
 | `STATICHOST_PORT` | no | `3000` | Listen port inside the container |
 | `STATICHOST_SITES_DIR` | no | `/sites` | Directory where deployed sites live |
-| `STATICHOST_BINARIES_DIR` | no | `/dl` | Directory served by `/dl/{filename}` |
 | `RUST_LOG` | no | `info` | Log filter (e.g. `debug`, `statichost_server=trace`) |
 
 CLI config is at `~/.statichost/config.toml` and contains `host` and `token` — managed by `statichost login`, no need to edit by hand.
