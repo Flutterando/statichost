@@ -19,6 +19,7 @@ pub fn router() -> Router<AppState> {
         .route("/deploy", post(deploy))
         .route("/sites", get(list_sites))
         .route("/sites/:name", delete(delete_site))
+        .route("/binaries/upload", post(upload_binary))
         .route("/health", get(health))
         .layer(DefaultBodyLimit::max(MAX_UPLOAD_BYTES))
 }
@@ -132,6 +133,91 @@ async fn list_sites(
     }
     out.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(Json(out))
+}
+
+async fn upload_binary(
+    State(state): State<AppState>,
+    mut multipart: Multipart,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let mut filename: Option<String> = None;
+    let mut bytes: Option<Vec<u8>> = None;
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| (StatusCode::BAD_REQUEST, format!("multipart: {e}")))?
+    {
+        match field.name().unwrap_or("") {
+            "filename" => {
+                filename = Some(field.text().await.map_err(|e| {
+                    (StatusCode::BAD_REQUEST, format!("filename field: {e}"))
+                })?);
+            }
+            "binary" => {
+                let b = field
+                    .bytes()
+                    .await
+                    .map_err(|e| (StatusCode::PAYLOAD_TOO_LARGE, format!("binary: {e}")))?;
+                bytes = Some(b.to_vec());
+            }
+            _ => {}
+        }
+    }
+
+    let filename = filename.ok_or((StatusCode::BAD_REQUEST, "missing 'filename'".into()))?;
+    let bytes = bytes.ok_or((StatusCode::BAD_REQUEST, "missing 'binary'".into()))?;
+
+    if !is_valid_binary_filename(&filename) {
+        return Err((StatusCode::BAD_REQUEST, "invalid filename".into()));
+    }
+
+    std::fs::create_dir_all(&state.config.binaries_dir)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("mkdir: {e}")))?;
+
+    let target = state.config.binaries_dir.join(&filename);
+    let staging = state
+        .config
+        .binaries_dir
+        .join(format!(".staging-{filename}-{}", uuid::Uuid::new_v4()));
+
+    std::fs::write(&staging, &bytes)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("write: {e}")))?;
+
+    #[cfg(unix)]
+    if !filename.ends_with(".exe") {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(&staging)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("stat: {e}")))?
+            .permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&staging, perms).map_err(|e| {
+            let _ = std::fs::remove_file(&staging);
+            (StatusCode::INTERNAL_SERVER_ERROR, format!("chmod: {e}"))
+        })?;
+    }
+
+    std::fs::rename(&staging, &target).map_err(|e| {
+        let _ = std::fs::remove_file(&staging);
+        (StatusCode::INTERNAL_SERVER_ERROR, format!("swap: {e}"))
+    })?;
+
+    tracing::info!("uploaded binary {filename} ({} bytes)", bytes.len());
+    Ok(StatusCode::NO_CONTENT)
+}
+
+fn is_valid_binary_filename(s: &str) -> bool {
+    if !s.starts_with("statichost-") {
+        return false;
+    }
+    if s.contains('/') || s.contains("..") || s.starts_with('.') {
+        return false;
+    }
+    let len = s.len();
+    if !(12..=64).contains(&len) {
+        return false;
+    }
+    s.bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_' || b == b'.')
 }
 
 async fn delete_site(
