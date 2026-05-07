@@ -76,8 +76,8 @@ curl http://localtest.me:3000/
 |---|---|---|---|
 | [Caddy with on-demand TLS](deploy/docker-compose.caddy.yml) | VPS with public IP | 80 + 443 | no |
 | [Cloudflare Tunnel sidecar](deploy/docker-compose.cloudflared.yml) | Anywhere — VPS, NAT, Coolify | none | yes |
-| [Coolify + cloudflared bypass](deploy/README.md#coolify-with-cloudflared-bypass) | Already running Coolify | none | yes |
-| [Coolify native (fixed subdomains)](deploy/README.md#coolify-native-fixed-subdomains) | Few pre-known subdomains | Coolify-managed | no |
+| [Coolify with a subdomain list](deploy/README.md#coolify-with-a-subdomain-list-recommended-for-coolify-users) | Already running Coolify, predictable set of names | Coolify-managed | no |
+| [Coolify + cloudflared bypass](deploy/README.md#coolify-with-cloudflared-bypass) | Coolify + unbounded random names (per-PR previews, ephemeral tunnels) | none | yes |
 
 See [`deploy/README.md`](deploy/README.md) for full setup steps.
 
@@ -102,11 +102,15 @@ CLOUDFLARED_TOKEN=eyJh...   # from Cloudflare Zero Trust dashboard
 docker compose -f docker-compose.cloudflared.yml up -d
 ```
 
-### Why not just `docker run` and let Coolify route it
+### Why doesn't a wildcard in Coolify's Domain field "just work"?
 
-Coolify (and similar PaaS platforms) generate Traefik rules from the Domain field of each resource. They expect a literal hostname like `app.your-domain.com`, not `*.your-domain.com`. When you put a wildcard there, the generated Traefik label either does nothing or matches nothing — Traefik returns `404 page not found` for every subdomain.
+Coolify (and similar PaaS) generate one literal `Host(...)` Traefik rule per item in the Domain field. They were designed for one app = one hostname. A `*.your-domain.com` either gets treated as a literal `*` character or generates no rule at all — Traefik then returns `404 page not found` for every actual subdomain.
 
-The recipes above sidestep this by either replacing the reverse proxy entirely (Caddy) or routing around it (cloudflared). They keep Coolify happy for your other apps without trying to make Coolify do something it wasn't designed for.
+The four recipes work around this differently:
+
+- **Caddy** and **cloudflared** sidecars **replace** Coolify's reverse proxy for this stack. Other Coolify apps keep using Coolify's Traefik untouched.
+- The **subdomain list** trick uses Coolify's native routing as designed (literal hostnames), but lists every subdomain you'll ever need up-front. statichost still does internal routing, so each entry just points to the same container.
+- The **cloudflared bypass** keeps Coolify for other apps but skips its proxy for statichost specifically.
 
 ---
 
